@@ -1,8 +1,8 @@
 import Link from "next/link";
-import Image from "next/image";
 import { Role } from "@prisma/client";
 import { SubmitButton } from "@/components/actions";
 import { Nav } from "@/components/nav";
+import { SponsorCarousel } from "@/components/sponsor-carousel";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fetchWorldCup26Games, isLiveWorldCup26Game, parseWorldCup26Score } from "@/lib/worldcup26";
@@ -93,14 +93,7 @@ export default async function DashboardPage() {
 
         <section className="mb-8 rounded-lg border border-line bg-white p-5">
           <h2 className="mb-4 text-lg font-bold">Avalado por</h2>
-          <Image
-            src="/luzdemarfil.jpeg"
-            alt="Luz de Marfil Pet Shop Vivero"
-            width={1280}
-            height={821}
-            className="h-auto w-full rounded-md object-cover"
-            priority
-          />
+          <SponsorCarousel />
         </section>
 
         <div className="grid gap-5 lg:grid-cols-[1.4fr_0.8fr]">
