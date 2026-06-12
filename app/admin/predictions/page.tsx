@@ -8,6 +8,7 @@ function formatDate(date: Date) {
   return new Intl.DateTimeFormat("es-AR", {
     dateStyle: "short",
     timeStyle: "short",
+    hour12: false,
     timeZone: "America/Argentina/Buenos_Aires",
   }).format(date);
 }

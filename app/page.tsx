@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Role } from "@prisma/client";
 import { SubmitButton } from "@/components/actions";
 import { Nav } from "@/components/nav";
@@ -13,6 +14,7 @@ function formatDate(date: Date) {
   return new Intl.DateTimeFormat("es-AR", {
     dateStyle: "medium",
     timeStyle: "short",
+    hour12: false,
     timeZone: "America/Argentina/Buenos_Aires",
   }).format(date);
 }
@@ -87,6 +89,18 @@ export default async function DashboardPage() {
               </SubmitButton>
             </form>
           ) : null}
+        </section>
+
+        <section className="mb-8 rounded-lg border border-line bg-white p-5">
+          <h2 className="mb-4 text-lg font-bold">Avalado por</h2>
+          <Image
+            src="/luzdemarfil.jpeg"
+            alt="Luz de Marfil Pet Shop Vivero"
+            width={1280}
+            height={821}
+            className="h-auto w-full rounded-md object-cover"
+            priority
+          />
         </section>
 
         <div className="grid gap-5 lg:grid-cols-[1.4fr_0.8fr]">
