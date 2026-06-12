@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "file:/data/prod.db"
+      AUTH_SECRET: "change-this-secret-in-production"
+      AUTH_COOKIE_SECURE: "false"
+      CRON_SECRET: ""
+      WORLDCUP26_API_URL: "https://worldcup26.ir"
+    volumes:
+      - prode-data:/data
+
+volumes:
+  prode-data:

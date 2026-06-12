@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: #f7f7f4;
+  color: #111827;
+}
+
+input,
+select {
+  color: #111827;
+}

@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PLAYER
+}
+
+model User {
+  id          Int          @id @default(autoincrement())
+  name        String
+  username    String       @unique
+  password    String
+  role        Role         @default(PLAYER)
+  createdAt   DateTime     @default(now())
+  predictions Prediction[]
+}
+
+model Team {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  flagEmoji    String
+  fifaCode     String?       @unique
+  continent    String?
+  groupName    String?
+  confed       String?
+  homeMatches  Match[]       @relation("HomeTeam")
+  awayMatches  Match[]       @relation("AwayTeam")
+  squadPlayers SquadPlayer[]
+}
+
+model Match {
+  id                   Int          @id @default(autoincrement())
+  homeTeamId           Int
+  awayTeamId           Int
+  stadiumId            Int?
+  apiFootballFixtureId Int?         @unique
+  matchDate            DateTime
+  stage                String
+  round                String?
+  groupName            String?
+  homeScore            Int?
+  awayScore            Int?
+  isFinished           Boolean      @default(false)
+  createdAt            DateTime     @default(now())
+  homeTeam             Team         @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam             Team         @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  stadium              Stadium?     @relation(fields: [stadiumId], references: [id])
+  predictions          Prediction[]
+
+  @@unique([homeTeamId, awayTeamId, matchDate])
+}
+
+model Stadium {
+  id        Int     @id @default(autoincrement())
+  city      String  @unique
+  name      String
+  timezone  String
+  country   String
+  capacity  Int
+  coords    String
+  matches   Match[]
+}
+
+model SquadPlayer {
+  id          Int       @id @default(autoincrement())
+  teamId      Int
+  number      Int
+  position    String
+  name        String
+  dateOfBirth DateTime?
+  team        Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, number, name])
+}
+
+model Prediction {
+  id          Int      @id @default(autoincrement())
+  playerId    Int
+  matchId     Int
+  homeScore   Int
+  awayScore   Int
+  points      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  player      User     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, matchId])
+}
