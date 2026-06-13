@@ -4,9 +4,10 @@ import { SubmitButton } from "@/components/actions";
 import { Nav } from "@/components/nav";
 import { SponsorCarousel } from "@/components/sponsor-carousel";
 import { requireUser } from "@/lib/auth";
+import { canEditPrediction } from "@/lib/matches";
 import { prisma } from "@/lib/prisma";
 import { fetchWorldCup26Games, isLiveWorldCup26Game, parseWorldCup26Score } from "@/lib/worldcup26";
-import { syncResultsAction } from "./matches/actions";
+import { savePredictionAction, syncResultsAction } from "./matches/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,14 @@ export default async function DashboardPage() {
     getLiveMatches(),
     prisma.match.findMany({
       where: { isFinished: false },
-      include: { homeTeam: true, awayTeam: true, stadium: true },
+      include: {
+        homeTeam: true,
+        awayTeam: true,
+        stadium: true,
+        predictions: {
+          where: { playerId: user.id },
+        },
+      },
       orderBy: { matchDate: "asc" },
       take: 5,
     }),
@@ -78,7 +86,7 @@ export default async function DashboardPage() {
   return (
     <>
       <Nav user={user} />
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto w-full max-w-6xl overflow-x-hidden px-4 py-8">
         <section className="mb-8">
           <h1 className="text-3xl font-bold">Hola, {user.name}</h1>
           <p className="mt-2 text-gray-600">Estos son los partidos, resultados y posiciones del prode.</p>
@@ -96,8 +104,8 @@ export default async function DashboardPage() {
           <SponsorCarousel />
         </section>
 
-        <div className="grid gap-5 lg:grid-cols-[1.4fr_0.8fr]">
-          <section className="rounded-lg border border-line bg-white p-5 lg:col-span-2">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)]">
+          <section className="min-w-0 rounded-lg border border-line bg-white p-5 lg:col-span-2">
             <div className="mb-4 flex items-center gap-3">
               <h2 className="text-lg font-bold">En vivo</h2>
               {liveMatches.length > 0 ? (
@@ -122,34 +130,100 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-line bg-white p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold">Próximos partidos</h2>
+          <section className="min-w-0 rounded-lg border border-line bg-white p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-bold leading-tight">Próximos partidos</h2>
               <Link href="/matches" className="text-sm font-semibold text-pitch hover:underline">
                 Ver todos
               </Link>
             </div>
             <div className="space-y-3">
-              {upcomingMatches.map((match) => (
-                <Link
-                  key={match.id}
-                  href={`/matches/${match.id}`}
-                  className="grid gap-2 rounded-md border border-gray-200 p-3 hover:border-pitch sm:grid-cols-[1fr_auto]"
-                >
-                  <span className="font-semibold">
-                    {match.homeTeam.flagEmoji} {match.homeTeam.name} vs {match.awayTeam.flagEmoji} {match.awayTeam.name}
-                  </span>
-                  <span className="text-sm text-gray-600">
-                    {formatDate(match.matchDate)}
-                    {match.stadium ? ` · ${match.stadium.city}` : ""}
-                  </span>
-                </Link>
-              ))}
+              {upcomingMatches.map((match) => {
+                const myPrediction = match.predictions[0];
+                const predictionEditable = canEditPrediction(match);
+
+                return (
+                  <details
+                    key={match.id}
+                    className="group overflow-hidden rounded-md border border-gray-200 bg-white transition focus-within:border-pitch open:border-pitch"
+                  >
+                    <summary className="grid cursor-pointer list-none gap-2 p-3 outline-none transition hover:bg-gray-50 sm:grid-cols-[minmax(0,1fr)_auto] [&::-webkit-details-marker]:hidden">
+                      <span className="min-w-0">
+                        <span className="block break-words font-semibold">
+                          {match.homeTeam.flagEmoji} {match.homeTeam.name} vs {match.awayTeam.flagEmoji} {match.awayTeam.name}
+                        </span>
+                        {myPrediction ? (
+                          <span className="mt-1 block text-sm font-semibold text-pitch">
+                            Pronóstico: {myPrediction.homeScore} - {myPrediction.awayScore}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="text-sm text-gray-600 sm:text-right">
+                        {formatDate(match.matchDate)}
+                        {match.stadium ? ` · ${match.stadium.city}` : ""}
+                      </span>
+                    </summary>
+
+                    <div className="border-t border-gray-200 bg-gray-50 p-3">
+                      <div className="mb-3 grid gap-2 text-sm sm:grid-cols-2">
+                        <p className="min-w-0 break-words">
+                          <span className="block text-gray-600">Local</span>
+                          <strong>{match.homeTeam.name}</strong>
+                        </p>
+                        <p className="min-w-0 break-words">
+                          <span className="block text-gray-600">Visitante</span>
+                          <strong>{match.awayTeam.name}</strong>
+                        </p>
+                      </div>
+
+                      {!predictionEditable ? (
+                        <p className="rounded-md bg-white px-3 py-2 text-sm text-gray-600">
+                          {match.isFinished
+                            ? "El partido ya finalizó. Las predicciones quedaron bloqueadas."
+                            : "El partido ya empezó. Las predicciones quedaron bloqueadas."}
+                        </p>
+                      ) : (
+                        <form action={savePredictionAction} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2 sm:gap-3">
+                          <input type="hidden" name="matchId" value={match.id} />
+                          <label className="block min-w-0 text-sm font-medium">
+                            <span className="block truncate">{match.homeTeam.name}</span>
+                            <input
+                              name="homeScore"
+                              type="number"
+                              min="0"
+                              defaultValue={myPrediction?.homeScore ?? 0}
+                              className="mt-1 h-10 w-full min-w-0 rounded-md border border-line bg-white px-2 text-center sm:px-3"
+                              required
+                            />
+                          </label>
+                          <span className="pb-2 text-xl font-bold">-</span>
+                          <label className="block min-w-0 text-sm font-medium">
+                            <span className="block truncate">{match.awayTeam.name}</span>
+                            <input
+                              name="awayScore"
+                              type="number"
+                              min="0"
+                              defaultValue={myPrediction?.awayScore ?? 0}
+                              className="mt-1 h-10 w-full min-w-0 rounded-md border border-line bg-white px-2 text-center sm:px-3"
+                              required
+                            />
+                          </label>
+                          <div className="col-span-3">
+                            <SubmitButton className="inline-flex h-10 w-full items-center justify-center rounded-md bg-pitch px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
+                              {myPrediction ? "Actualizar pronóstico" : "Guardar pronóstico"}
+                            </SubmitButton>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+                  </details>
+                );
+              })}
               {upcomingMatches.length === 0 ? <p className="text-sm text-gray-600">No hay partidos pendientes.</p> : null}
             </div>
           </section>
 
-          <section className="rounded-lg border border-line bg-white p-5">
+          <section className="min-w-0 rounded-lg border border-line bg-white p-5">
             <h2 className="mb-4 text-lg font-bold">Ranking general</h2>
             <ol className="space-y-2">
               {rankingRows.map((row, index) => (
@@ -163,7 +237,7 @@ export default async function DashboardPage() {
             </ol>
           </section>
 
-          <section className="rounded-lg border border-line bg-white p-5">
+          <section className="min-w-0 rounded-lg border border-line bg-white p-5">
             <h2 className="mb-4 text-lg font-bold">Últimos resultados</h2>
             <div className="space-y-3">
               {latestResults.map((match) => (
@@ -178,7 +252,7 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-line bg-white p-5">
+          <section className="min-w-0 rounded-lg border border-line bg-white p-5">
             <h2 className="mb-4 text-lg font-bold">Mis predicciones</h2>
             <div className="space-y-3">
               {myPredictions.map((prediction) => (
