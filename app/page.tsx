@@ -3,13 +3,23 @@ import { Role } from "@prisma/client";
 import { SubmitButton } from "@/components/actions";
 import { Nav } from "@/components/nav";
 import { SponsorCarousel } from "@/components/sponsor-carousel";
+import { ApiFootballFixture, apiFootballConfigured, fetchWorldCupFixtures, isLiveApiFixture } from "@/lib/api-football";
 import { requireUser } from "@/lib/auth";
 import { canEditPrediction } from "@/lib/matches";
 import { prisma } from "@/lib/prisma";
-import { fetchWorldCup26Games, isLiveWorldCup26Game, parseWorldCup26Score } from "@/lib/worldcup26";
+import { WorldCup26Game, fetchWorldCup26Games, isLiveWorldCup26Game, parseWorldCup26Score } from "@/lib/worldcup26";
 import { savePredictionAction, syncResultsAction } from "./matches/actions";
 
 export const dynamic = "force-dynamic";
+
+type LiveMatch = {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  status: string;
+};
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("es-AR", {
@@ -20,31 +30,90 @@ function formatDate(date: Date) {
   }).format(date);
 }
 
-async function getLiveMatches() {
+function normalizeTeamName(name: string) {
+  const aliases: Record<string, string> = {
+    "United States": "USA",
+    "Bosnia and Herzegovina": "Bosnia & Herzegovina",
+    "Congo DR": "DR Congo",
+    "Democratic Republic of the Congo": "DR Congo",
+  };
+
+  return aliases[name] ?? name;
+}
+
+function teamPairKey(homeTeam: string, awayTeam: string) {
+  return `${normalizeTeamName(homeTeam)}:${normalizeTeamName(awayTeam)}`;
+}
+
+function gameToLiveMatch(game: WorldCup26Game): LiveMatch {
+  return {
+    id: game.id,
+    homeTeam: normalizeTeamName(game.home_team_name_en),
+    awayTeam: normalizeTeamName(game.away_team_name_en),
+    homeScore: parseWorldCup26Score(game.home_score),
+    awayScore: parseWorldCup26Score(game.away_score),
+    status: game.time_elapsed ?? "live",
+  };
+}
+
+function fixtureToLiveMatch(fixture: ApiFootballFixture): LiveMatch {
+  return {
+    id: String(fixture.fixture.id),
+    homeTeam: normalizeTeamName(fixture.teams.home.name),
+    awayTeam: normalizeTeamName(fixture.teams.away.name),
+    homeScore: fixture.goals.home,
+    awayScore: fixture.goals.away,
+    status: fixture.fixture.status.short,
+  };
+}
+
+async function getApiGames(): Promise<WorldCup26Game[]> {
   try {
-    const games = await fetchWorldCup26Games();
-    return games
-      .filter(isLiveWorldCup26Game)
-      .map((game) => ({
-        id: game.id,
-        homeTeam: game.home_team_name_en,
-        awayTeam: game.away_team_name_en,
-        homeScore: parseWorldCup26Score(game.home_score) ?? 0,
-        awayScore: parseWorldCup26Score(game.away_score) ?? 0,
-        status: game.time_elapsed ?? "live",
-      }));
+    return await fetchWorldCup26Games({ timeoutMs: 2500 });
   } catch (error) {
     console.error("No se pudieron cargar partidos en vivo.", error);
     return [];
   }
 }
 
+async function getApiFootballFixtures(): Promise<ApiFootballFixture[]> {
+  if (!apiFootballConfigured()) return [];
+
+  try {
+    return await fetchWorldCupFixtures({ timeoutMs: 2500 });
+  } catch (error) {
+    console.error("No se pudieron cargar fixtures de API-Football.", error);
+    return [];
+  }
+}
+
 export default async function DashboardPage() {
   const user = await requireUser();
-  const [liveMatches, upcomingMatches, latestResults, ranking, myPredictions] = await Promise.all([
-    getLiveMatches(),
+  const now = new Date();
+  const [apiGames, apiFootballFixtures, localLiveMatches, upcomingMatches, latestResults, ranking, myPredictions] = await Promise.all([
+    getApiGames(),
+    getApiFootballFixtures(),
     prisma.match.findMany({
-      where: { isFinished: false },
+      where: {
+        isFinished: false,
+        matchDate: {
+          lte: now,
+        },
+      },
+      include: {
+        homeTeam: true,
+        awayTeam: true,
+      },
+      orderBy: { matchDate: "asc" },
+      take: 8,
+    }),
+    prisma.match.findMany({
+      where: {
+        isFinished: false,
+        matchDate: {
+          gt: now,
+        },
+      },
       include: {
         homeTeam: true,
         awayTeam: true,
@@ -74,6 +143,39 @@ export default async function DashboardPage() {
       take: 6,
     }),
   ]);
+
+  const apiGamesByTeamPair = new Map(apiGames.map((game) => [teamPairKey(game.home_team_name_en, game.away_team_name_en), game]));
+  const apiFootballFixturesByTeamPair = new Map(
+    apiFootballFixtures.map((fixture) => [teamPairKey(fixture.teams.home.name, fixture.teams.away.name), fixture]),
+  );
+  const apiFootballLiveMatches = apiFootballFixtures.filter(isLiveApiFixture).map(fixtureToLiveMatch);
+  const apiFootballLiveTeamPairs = new Set(apiFootballLiveMatches.map((match) => teamPairKey(match.homeTeam, match.awayTeam)));
+  const apiLiveMatches = apiGames
+    .filter(isLiveWorldCup26Game)
+    .map(gameToLiveMatch)
+    .filter((match) => !apiFootballLiveTeamPairs.has(teamPairKey(match.homeTeam, match.awayTeam)));
+  const apiLiveTeamPairs = new Set([...apiFootballLiveMatches, ...apiLiveMatches].map((match) => teamPairKey(match.homeTeam, match.awayTeam)));
+  const liveMatches: LiveMatch[] = [
+    ...apiFootballLiveMatches,
+    ...apiLiveMatches,
+    ...localLiveMatches
+      .filter((match) => !apiLiveTeamPairs.has(teamPairKey(match.homeTeam.name, match.awayTeam.name)))
+      .map((match) => {
+        const apiGame = apiGamesByTeamPair.get(teamPairKey(match.homeTeam.name, match.awayTeam.name));
+        const apiFootballFixture = apiFootballFixturesByTeamPair.get(teamPairKey(match.homeTeam.name, match.awayTeam.name));
+        const apiHomeScore = apiGame ? parseWorldCup26Score(apiGame.home_score) : null;
+        const apiAwayScore = apiGame ? parseWorldCup26Score(apiGame.away_score) : null;
+
+        return {
+          id: String(match.id),
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeScore: apiFootballFixture?.goals.home ?? apiHomeScore ?? match.homeScore,
+          awayScore: apiFootballFixture?.goals.away ?? apiAwayScore ?? match.awayScore,
+          status: apiFootballFixture?.fixture.status.short ?? apiGame?.time_elapsed ?? "En curso",
+        };
+      }),
+  ];
 
   const rankingRows = ranking
     .map((player) => ({
@@ -122,7 +224,7 @@ export default async function DashboardPage() {
                     <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-red-700">{match.status}</span>
                   </div>
                   <p className="mt-3 text-2xl font-bold">
-                    {match.homeScore} - {match.awayScore}
+                    {match.homeScore ?? "-"} - {match.awayScore ?? "-"}
                   </p>
                 </div>
               ))}

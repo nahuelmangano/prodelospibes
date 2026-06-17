@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClipboardCheck, LogOut, Trophy, Users, CalendarDays } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Gift, LogOut, RefreshCw, Trophy, Users } from "lucide-react";
 import { Role } from "@prisma/client";
 import { logoutAction } from "@/app/login/actions";
 
@@ -23,11 +23,19 @@ export function Nav({ user }: NavProps) {
             <CalendarDays className="h-4 w-4 shrink-0" />
             Partidos
           </Link>
+          <Link className="inline-flex items-center gap-2 rounded-md px-3 py-2 hover:bg-gray-100" href="/prizes">
+            <Gift className="h-4 w-4 shrink-0" />
+            Premios
+          </Link>
           {user.role === Role.ADMIN ? (
             <>
               <Link className="inline-flex items-center gap-2 rounded-md px-3 py-2 hover:bg-gray-100" href="/admin/predictions">
                 <ClipboardCheck className="h-4 w-4 shrink-0" />
                 Predicciones
+              </Link>
+              <Link className="inline-flex items-center gap-2 rounded-md px-3 py-2 hover:bg-gray-100" href="/admin/syncs">
+                <RefreshCw className="h-4 w-4 shrink-0" />
+                Syncs
               </Link>
               <Link className="inline-flex items-center gap-2 rounded-md px-3 py-2 hover:bg-gray-100" href="/players">
                 <Users className="h-4 w-4 shrink-0" />

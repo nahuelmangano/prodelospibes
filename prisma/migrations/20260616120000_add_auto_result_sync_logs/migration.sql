@@ -1,0 +1,15 @@
+CREATE TABLE "AutoResultSyncLog" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "status" TEXT NOT NULL,
+    "startedAt" DATETIME NOT NULL,
+    "finishedAt" DATETIME NOT NULL,
+    "fixtures" INTEGER NOT NULL DEFAULT 0,
+    "scheduled" INTEGER NOT NULL DEFAULT 0,
+    "alreadyScheduled" INTEGER NOT NULL DEFAULT 0,
+    "dueMatches" INTEGER NOT NULL DEFAULT 0,
+    "linked" INTEGER NOT NULL DEFAULT 0,
+    "finishedMatches" INTEGER NOT NULL DEFAULT 0,
+    "skipped" INTEGER NOT NULL DEFAULT 0,
+    "errorMessage" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -30,11 +30,15 @@ type ApiFootballResponse = {
   errors?: unknown;
 };
 
+type FetchWorldCupFixturesOptions = {
+  timeoutMs?: number;
+};
+
 export function apiFootballConfigured() {
   return Boolean(process.env.API_FOOTBALL_KEY);
 }
 
-export async function fetchWorldCupFixtures() {
+export async function fetchWorldCupFixtures(options: FetchWorldCupFixturesOptions = {}) {
   const apiKey = process.env.API_FOOTBALL_KEY;
   if (!apiKey) {
     throw new Error("API_FOOTBALL_KEY no está configurada.");
@@ -50,6 +54,7 @@ export async function fetchWorldCupFixtures() {
       "x-apisports-key": apiKey,
     },
     cache: "no-store",
+    signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
   });
 
   if (!response.ok) {
@@ -66,4 +71,8 @@ export async function fetchWorldCupFixtures() {
 
 export function isFinishedApiFixture(fixture: ApiFootballFixture) {
   return ["FT", "AET", "PEN"].includes(fixture.fixture.status.short);
+}
+
+export function isLiveApiFixture(fixture: ApiFootballFixture) {
+  return ["1H", "HT", "2H", "ET", "BT", "P", "SUSP", "INT"].includes(fixture.fixture.status.short);
 }

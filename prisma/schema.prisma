@@ -13,6 +13,17 @@ enum Role {
   PLAYER
 }
 
+enum AutoResultSyncStatus {
+  SCHEDULED
+  SUCCESS
+  ERROR
+}
+
+enum ResultSyncSource {
+  AUTO
+  MANUAL
+}
+
 model User {
   id          Int          @id @default(autoincrement())
   name        String
@@ -49,6 +60,7 @@ model Match {
   homeScore            Int?
   awayScore            Int?
   isFinished           Boolean      @default(false)
+  autoResultSyncAt     DateTime?
   createdAt            DateTime     @default(now())
   homeTeam             Team         @relation("HomeTeam", fields: [homeTeamId], references: [id])
   awayTeam             Team         @relation("AwayTeam", fields: [awayTeamId], references: [id])
@@ -56,6 +68,23 @@ model Match {
   predictions          Prediction[]
 
   @@unique([homeTeamId, awayTeamId, matchDate])
+}
+
+model AutoResultSyncLog {
+  id               Int                  @id @default(autoincrement())
+  source           ResultSyncSource     @default(AUTO)
+  status           AutoResultSyncStatus
+  startedAt        DateTime
+  finishedAt       DateTime
+  fixtures         Int                  @default(0)
+  scheduled        Int                  @default(0)
+  alreadyScheduled Int                  @default(0)
+  dueMatches       Int                  @default(0)
+  linked           Int                  @default(0)
+  finishedMatches  Int                  @default(0)
+  skipped          Int                  @default(0)
+  errorMessage     String?
+  createdAt        DateTime             @default(now())
 }
 
 model Stadium {

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { canEditPrediction } from "@/lib/matches";
 import { prisma } from "@/lib/prisma";
-import { syncResultsFromApiFootball } from "@/lib/result-sync";
+import { syncResultsManually } from "@/lib/result-sync";
 import { calculatePoints } from "@/lib/scoring";
 
 export async function savePredictionAction(formData: FormData) {
@@ -60,7 +60,7 @@ export async function syncResultsAction() {
   if (user.role !== Role.ADMIN) return;
 
   try {
-    await syncResultsFromApiFootball();
+    await syncResultsManually();
   } catch (error) {
     console.error("No se pudieron sincronizar resultados.", error);
   }

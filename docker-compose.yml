@@ -7,10 +7,25 @@ services:
       DATABASE_URL: "file:/data/prod.db"
       AUTH_SECRET: "change-this-secret-in-production"
       AUTH_COOKIE_SECURE: "false"
-      CRON_SECRET: ""
+      CRON_SECRET: "${CRON_SECRET:-change-this-secret-in-production}"
       WORLDCUP26_API_URL: "https://worldcup26.ir"
+      RESULT_SYNC_DELAY_MINUTES: "${RESULT_SYNC_DELAY_MINUTES:-2}"
     volumes:
       - prode-data:/data
+
+  result-sync:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      - app
+    environment:
+      CRON_SECRET: "${CRON_SECRET:-change-this-secret-in-production}"
+      RESULT_SYNC_POLL_SECONDS: "${RESULT_SYNC_POLL_SECONDS:-60}"
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      while true; do
+        curl -fsS -H "Authorization: Bearer $${CRON_SECRET}" http://app:3000/api/cron/sync-due-results || true;
+        sleep "$${RESULT_SYNC_POLL_SECONDS}";
+      done
 
 volumes:
   prode-data:

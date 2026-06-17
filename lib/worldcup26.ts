@@ -14,9 +14,15 @@ type WorldCup26GamesResponse = {
   games: WorldCup26Game[];
 };
 
-export async function fetchWorldCup26Games() {
+type FetchWorldCup26GamesOptions = {
+  timeoutMs?: number;
+};
+
+export async function fetchWorldCup26Games(options: FetchWorldCup26GamesOptions = {}) {
+  const signal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
   const response = await fetch(`${BASE_URL}/get/games`, {
     cache: "no-store",
+    signal,
   });
 
   if (!response.ok) {
