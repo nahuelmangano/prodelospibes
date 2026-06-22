@@ -3,8 +3,8 @@ import { Role } from "@prisma/client";
 import { SubmitButton } from "@/components/actions";
 import { Nav } from "@/components/nav";
 import { SponsorCarousel } from "@/components/sponsor-carousel";
-import { ApiFootballFixture, apiFootballConfigured, fetchWorldCupFixtures, isLiveApiFixture } from "@/lib/api-football";
 import { requireUser } from "@/lib/auth";
+import { EspnLiveMatch, fetchEspnScoreboard } from "@/lib/espn-scoreboard";
 import { canEditPrediction } from "@/lib/matches";
 import { prisma } from "@/lib/prisma";
 import { WorldCup26Game, fetchWorldCup26Games, isLiveWorldCup26Game, parseWorldCup26Score } from "@/lib/worldcup26";
@@ -19,6 +19,15 @@ type LiveMatch = {
   homeScore: number | null;
   awayScore: number | null;
   status: string;
+  prediction?: {
+    homeScore: number;
+    awayScore: number;
+  };
+};
+
+type ExternalLiveMatch = LiveMatch & {
+  isLive: boolean;
+  isFinished: boolean;
 };
 
 function formatDate(date: Date) {
@@ -35,6 +44,7 @@ function normalizeTeamName(name: string) {
     "United States": "USA",
     "Bosnia and Herzegovina": "Bosnia & Herzegovina",
     "Congo DR": "DR Congo",
+    "DR Congo": "DR Congo",
     "Democratic Republic of the Congo": "DR Congo",
   };
 
@@ -45,7 +55,7 @@ function teamPairKey(homeTeam: string, awayTeam: string) {
   return `${normalizeTeamName(homeTeam)}:${normalizeTeamName(awayTeam)}`;
 }
 
-function gameToLiveMatch(game: WorldCup26Game): LiveMatch {
+function gameToLiveMatch(game: WorldCup26Game): ExternalLiveMatch {
   return {
     id: game.id,
     homeTeam: normalizeTeamName(game.home_team_name_en),
@@ -53,17 +63,21 @@ function gameToLiveMatch(game: WorldCup26Game): LiveMatch {
     homeScore: parseWorldCup26Score(game.home_score),
     awayScore: parseWorldCup26Score(game.away_score),
     status: game.time_elapsed ?? "live",
+    isLive: isLiveWorldCup26Game(game),
+    isFinished: game.finished.toUpperCase() === "TRUE" || game.time_elapsed === "finished",
   };
 }
 
-function fixtureToLiveMatch(fixture: ApiFootballFixture): LiveMatch {
+function espnToLiveMatch(match: EspnLiveMatch): ExternalLiveMatch {
   return {
-    id: String(fixture.fixture.id),
-    homeTeam: normalizeTeamName(fixture.teams.home.name),
-    awayTeam: normalizeTeamName(fixture.teams.away.name),
-    homeScore: fixture.goals.home,
-    awayScore: fixture.goals.away,
-    status: fixture.fixture.status.short,
+    id: match.id,
+    homeTeam: normalizeTeamName(match.homeTeam),
+    awayTeam: normalizeTeamName(match.awayTeam),
+    homeScore: match.homeScore,
+    awayScore: match.awayScore,
+    status: match.status,
+    isLive: match.isLive,
+    isFinished: match.isFinished,
   };
 }
 
@@ -71,18 +85,16 @@ async function getApiGames(): Promise<WorldCup26Game[]> {
   try {
     return await fetchWorldCup26Games({ timeoutMs: 2500 });
   } catch (error) {
-    console.error("No se pudieron cargar partidos en vivo.", error);
+    console.warn("No se pudieron cargar partidos en vivo.", error instanceof Error ? error.message : String(error));
     return [];
   }
 }
 
-async function getApiFootballFixtures(): Promise<ApiFootballFixture[]> {
-  if (!apiFootballConfigured()) return [];
-
+async function getEspnMatches(): Promise<ExternalLiveMatch[]> {
   try {
-    return await fetchWorldCupFixtures({ timeoutMs: 2500 });
+    return (await fetchEspnScoreboard({ timeoutMs: 2500 })).map(espnToLiveMatch);
   } catch (error) {
-    console.error("No se pudieron cargar fixtures de API-Football.", error);
+    console.warn("No se pudieron cargar marcadores de ESPN.", error instanceof Error ? error.message : String(error));
     return [];
   }
 }
@@ -90,9 +102,9 @@ async function getApiFootballFixtures(): Promise<ApiFootballFixture[]> {
 export default async function DashboardPage() {
   const user = await requireUser();
   const now = new Date();
-  const [apiGames, apiFootballFixtures, localLiveMatches, upcomingMatches, latestResults, ranking, myPredictions] = await Promise.all([
+  const [espnMatches, apiGames, localLiveMatches, upcomingMatches, latestResults, ranking, livePredictions, myPredictions] = await Promise.all([
+    getEspnMatches(),
     getApiGames(),
-    getApiFootballFixtures(),
     prisma.match.findMany({
       where: {
         isFinished: false,
@@ -137,6 +149,19 @@ export default async function DashboardPage() {
       orderBy: { name: "asc" },
     }),
     prisma.prediction.findMany({
+      where: {
+        playerId: user.id,
+        match: {
+          isFinished: false,
+          matchDate: {
+            lte: now,
+          },
+        },
+      },
+      include: { match: { include: { homeTeam: true, awayTeam: true } } },
+      orderBy: { match: { matchDate: "asc" } },
+    }),
+    prisma.prediction.findMany({
       where: { playerId: user.id },
       include: { match: { include: { homeTeam: true, awayTeam: true } } },
       orderBy: { match: { matchDate: "asc" } },
@@ -144,35 +169,24 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  const apiGamesByTeamPair = new Map(apiGames.map((game) => [teamPairKey(game.home_team_name_en, game.away_team_name_en), game]));
-  const apiFootballFixturesByTeamPair = new Map(
-    apiFootballFixtures.map((fixture) => [teamPairKey(fixture.teams.home.name, fixture.teams.away.name), fixture]),
-  );
-  const apiFootballLiveMatches = apiFootballFixtures.filter(isLiveApiFixture).map(fixtureToLiveMatch);
-  const apiFootballLiveTeamPairs = new Set(apiFootballLiveMatches.map((match) => teamPairKey(match.homeTeam, match.awayTeam)));
-  const apiLiveMatches = apiGames
-    .filter(isLiveWorldCup26Game)
-    .map(gameToLiveMatch)
-    .filter((match) => !apiFootballLiveTeamPairs.has(teamPairKey(match.homeTeam, match.awayTeam)));
-  const apiLiveTeamPairs = new Set([...apiFootballLiveMatches, ...apiLiveMatches].map((match) => teamPairKey(match.homeTeam, match.awayTeam)));
+  const externalMatches = [...apiGames.map(gameToLiveMatch), ...espnMatches];
+  const externalMatchesByTeamPair = new Map(externalMatches.map((match) => [teamPairKey(match.homeTeam, match.awayTeam), match]));
+  const externalLiveMatches = externalMatches.filter((match) => match.isLive);
+  const externalLiveTeamPairs = new Set(externalLiveMatches.map((match) => teamPairKey(match.homeTeam, match.awayTeam)));
   const liveMatches: LiveMatch[] = [
-    ...apiFootballLiveMatches,
-    ...apiLiveMatches,
+    ...externalLiveMatches,
     ...localLiveMatches
-      .filter((match) => !apiLiveTeamPairs.has(teamPairKey(match.homeTeam.name, match.awayTeam.name)))
+      .filter((match) => !externalLiveTeamPairs.has(teamPairKey(match.homeTeam.name, match.awayTeam.name)))
       .map((match) => {
-        const apiGame = apiGamesByTeamPair.get(teamPairKey(match.homeTeam.name, match.awayTeam.name));
-        const apiFootballFixture = apiFootballFixturesByTeamPair.get(teamPairKey(match.homeTeam.name, match.awayTeam.name));
-        const apiHomeScore = apiGame ? parseWorldCup26Score(apiGame.home_score) : null;
-        const apiAwayScore = apiGame ? parseWorldCup26Score(apiGame.away_score) : null;
+        const externalMatch = externalMatchesByTeamPair.get(teamPairKey(match.homeTeam.name, match.awayTeam.name));
 
         return {
           id: String(match.id),
           homeTeam: match.homeTeam.name,
           awayTeam: match.awayTeam.name,
-          homeScore: apiFootballFixture?.goals.home ?? apiHomeScore ?? match.homeScore,
-          awayScore: apiFootballFixture?.goals.away ?? apiAwayScore ?? match.awayScore,
-          status: apiFootballFixture?.fixture.status.short ?? apiGame?.time_elapsed ?? "En curso",
+          homeScore: externalMatch?.homeScore ?? match.homeScore,
+          awayScore: externalMatch?.awayScore ?? match.awayScore,
+          status: externalMatch?.status ?? "En curso",
         };
       }),
   ];
@@ -184,6 +198,21 @@ export default async function DashboardPage() {
       points: player.predictions.reduce((total, prediction) => total + prediction.points, 0),
     }))
     .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+
+  const myPredictionsByTeamPair = new Map(
+    livePredictions.map((prediction) => [
+      teamPairKey(prediction.match.homeTeam.name, prediction.match.awayTeam.name),
+      {
+        homeScore: prediction.homeScore,
+        awayScore: prediction.awayScore,
+      },
+    ]),
+  );
+
+  const liveMatchesWithPredictions = liveMatches.map((match) => ({
+    ...match,
+    prediction: myPredictionsByTeamPair.get(teamPairKey(match.homeTeam, match.awayTeam)),
+  }));
 
   return (
     <>
@@ -215,7 +244,7 @@ export default async function DashboardPage() {
               ) : null}
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              {liveMatches.map((match) => (
+              {liveMatchesWithPredictions.map((match) => (
                 <div key={match.id} className="rounded-md border border-red-100 bg-red-50/40 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-semibold">
@@ -223,9 +252,21 @@ export default async function DashboardPage() {
                     </p>
                     <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-red-700">{match.status}</span>
                   </div>
-                  <p className="mt-3 text-2xl font-bold">
-                    {match.homeScore ?? "-"} - {match.awayScore ?? "-"}
-                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
+                    <p className="text-2xl font-bold">
+                      {match.homeScore ?? "-"} - {match.awayScore ?? "-"}
+                    </p>
+                    {match.prediction ? (
+                      <p className="rounded-md bg-white px-3 py-2 text-sm text-gray-700">
+                        Tu predicción para este partido fue{" "}
+                        <strong>
+                          {match.prediction.homeScore} - {match.prediction.awayScore}
+                        </strong>
+                      </p>
+                    ) : (
+                      <p className="rounded-md bg-white px-3 py-2 text-sm text-gray-600">No cargaste predicción para este partido.</p>
+                    )}
+                  </div>
                 </div>
               ))}
               {liveMatches.length === 0 ? <p className="text-sm text-gray-600">No hay partidos en vivo ahora.</p> : null}

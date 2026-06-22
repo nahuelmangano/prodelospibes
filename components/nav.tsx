@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, ClipboardCheck, Gift, LogOut, RefreshCw, Trophy, Users } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Gift, KeyRound, LogOut, RefreshCw, Trophy, Users } from "lucide-react";
 import { Role } from "@prisma/client";
 import { logoutAction } from "@/app/login/actions";
 
@@ -43,7 +43,14 @@ export function Nav({ user }: NavProps) {
               </Link>
             </>
           ) : null}
-          <span className="max-w-full truncate rounded-md bg-gray-100 px-3 py-2 font-medium sm:max-w-44">{user.name}</span>
+          <Link
+            className="inline-flex max-w-full items-center gap-2 rounded-md bg-gray-100 px-3 py-2 font-medium hover:bg-gray-200 sm:max-w-44"
+            href="/account"
+            title="Mi cuenta"
+          >
+            <KeyRound className="h-4 w-4 shrink-0" />
+            <span className="truncate">{user.name}</span>
+          </Link>
           <form action={logoutAction}>
             <button className="inline-flex items-center gap-2 rounded-md px-3 py-2 hover:bg-gray-100" title="Salir">
               <LogOut className="h-4 w-4 shrink-0" />

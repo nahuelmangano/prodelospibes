@@ -5,7 +5,7 @@ import { Nav } from "@/components/nav";
 import { requireUser } from "@/lib/auth";
 import { canEditPrediction, hasMatchStarted } from "@/lib/matches";
 import { prisma } from "@/lib/prisma";
-import { savePredictionAction, saveResultAction } from "../actions";
+import { saveLiveResultAction, savePredictionAction, saveResultAction } from "../actions";
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("es-AR", {
@@ -56,7 +56,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ id
           <div className="mt-5 rounded-md bg-gray-50 px-4 py-3">
             <span className="text-sm text-gray-600">Resultado real</span>
             <p className="text-2xl font-bold">
-              {match.isFinished ? `${match.homeScore} - ${match.awayScore}` : "Pendiente"}
+              {match.homeScore !== null && match.awayScore !== null ? `${match.homeScore} - ${match.awayScore}` : "Pendiente"}
             </p>
           </div>
         </section>
@@ -126,7 +126,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ id
         {user.role === Role.ADMIN ? (
           <section className="mt-6 rounded-lg border border-line bg-white p-5">
             <h2 className="text-lg font-bold">Cargar resultado</h2>
-            <form action={saveResultAction} className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-3 md:max-w-md">
+            <form action={saveLiveResultAction} className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-3 md:max-w-md">
               <input type="hidden" name="matchId" value={match.id} />
               <label className="block text-sm font-medium">
                 {match.homeTeam.name}
@@ -152,7 +152,38 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ id
                 />
               </label>
               <div className="col-span-3">
-                <SubmitButton>Cerrar partido y recalcular</SubmitButton>
+                <SubmitButton>Actualizar marcador en vivo</SubmitButton>
+              </div>
+            </form>
+            <form action={saveResultAction} className="mt-6 grid grid-cols-[1fr_auto_1fr] items-end gap-3 border-t border-line pt-4 md:max-w-md">
+              <input type="hidden" name="matchId" value={match.id} />
+              <label className="block text-sm font-medium">
+                Final {match.homeTeam.name}
+                <input
+                  name="homeScore"
+                  type="number"
+                  min="0"
+                  defaultValue={match.homeScore ?? 0}
+                  className="mt-1 h-10 w-full rounded-md border border-line px-3"
+                  required
+                />
+              </label>
+              <span className="pb-2 text-xl font-bold">-</span>
+              <label className="block text-sm font-medium">
+                Final {match.awayTeam.name}
+                <input
+                  name="awayScore"
+                  type="number"
+                  min="0"
+                  defaultValue={match.awayScore ?? 0}
+                  className="mt-1 h-10 w-full rounded-md border border-line px-3"
+                  required
+                />
+              </label>
+              <div className="col-span-3">
+                <SubmitButton className="inline-flex h-10 items-center justify-center rounded-md bg-ink px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60">
+                  Cerrar partido y recalcular
+                </SubmitButton>
               </div>
             </form>
           </section>

@@ -198,7 +198,7 @@ export async function syncDueAutoResults(now = new Date()) {
       };
     }
 
-    const result = await syncResultsFromApiFootball();
+    const result = await syncResultsFromWorldCup26();
     const log = await createAutoSyncLog({
       source: ResultSyncSource.AUTO,
       status: AutoResultSyncStatus.SUCCESS,
@@ -249,7 +249,7 @@ export async function syncResultsManually() {
   const startedAt = new Date();
 
   try {
-    const result = await syncResultsFromApiFootball();
+    const result = await syncResultsFromWorldCup26();
     const log = await createAutoSyncLog({
       source: ResultSyncSource.MANUAL,
       status: AutoResultSyncStatus.SUCCESS,
@@ -357,5 +357,3 @@ export async function syncResultsFromWorldCup26() {
     skipped,
   };
 }
-
-export const syncResultsFromApiFootball = syncResultsFromWorldCup26;

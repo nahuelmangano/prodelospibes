@@ -87,6 +87,17 @@ model AutoResultSyncLog {
   createdAt        DateTime             @default(now())
 }
 
+model Prize {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([sortOrder, id])
+}
+
 model Stadium {
   id        Int     @id @default(autoincrement())
   city      String  @unique

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { syncResultsFromApiFootball } from "@/lib/result-sync";
+import { syncResultsFromWorldCup26 } from "@/lib/result-sync";
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await syncResultsFromApiFootball();
+    const result = await syncResultsFromWorldCup26();
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     return NextResponse.json(

@@ -55,6 +55,27 @@ export async function saveResultAction(formData: FormData) {
   revalidatePath("/");
 }
 
+export async function saveLiveResultAction(formData: FormData) {
+  const user = await requireUser();
+  if (user.role !== Role.ADMIN) return;
+
+  const matchId = Number(formData.get("matchId"));
+  const homeScore = Number(formData.get("homeScore"));
+  const awayScore = Number(formData.get("awayScore"));
+
+  if (!Number.isInteger(matchId) || !Number.isInteger(homeScore) || !Number.isInteger(awayScore)) return;
+  if (homeScore < 0 || awayScore < 0) return;
+
+  await prisma.match.update({
+    where: { id: matchId },
+    data: { homeScore, awayScore, isFinished: false },
+  });
+
+  revalidatePath(`/matches/${matchId}`);
+  revalidatePath("/matches");
+  revalidatePath("/");
+}
+
 export async function syncResultsAction() {
   const user = await requireUser();
   if (user.role !== Role.ADMIN) return;
