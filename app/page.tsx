@@ -139,7 +139,14 @@ export default async function DashboardPage() {
     }),
     prisma.match.findMany({
       where: { isFinished: true },
-      include: { homeTeam: true, awayTeam: true },
+      include: {
+        homeTeam: true,
+        awayTeam: true,
+        predictions: {
+          include: { player: true },
+          orderBy: { player: { name: "asc" } },
+        },
+      },
       orderBy: { matchDate: "desc" },
       take: 5,
     }),
@@ -384,12 +391,31 @@ export default async function DashboardPage() {
             <h2 className="mb-4 text-lg font-bold">Últimos resultados</h2>
             <div className="space-y-3">
               {latestResults.map((match) => (
-                <div key={match.id} className="rounded-md border border-gray-200 p-3">
-                  <p className="font-semibold">
-                    {match.homeTeam.name} {match.homeScore} - {match.awayScore} {match.awayTeam.name}
-                  </p>
-                  <p className="text-sm text-gray-600">{match.stage}</p>
-                </div>
+                <details
+                  key={match.id}
+                  className="group overflow-hidden rounded-md border border-gray-200 bg-white transition focus-within:border-pitch open:border-pitch"
+                >
+                  <summary className="cursor-pointer list-none p-3 outline-none transition hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
+                    <span className="block font-semibold">
+                      {match.homeTeam.name} {match.homeScore} - {match.awayScore} {match.awayTeam.name}
+                    </span>
+                    <span className="text-sm text-gray-600">{match.stage}</span>
+                  </summary>
+                  <div className="border-t border-gray-200 bg-gray-50 p-3">
+                    <h3 className="text-sm font-bold">Predicciones</h3>
+                    <div className="mt-2 space-y-2">
+                      {match.predictions.map((prediction) => (
+                        <div key={prediction.id} className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm">
+                          <span className="min-w-0 truncate font-medium">{prediction.player.name}</span>
+                          <span className="shrink-0 font-semibold">
+                            {prediction.homeScore} - {prediction.awayScore} · {prediction.points} pts
+                          </span>
+                        </div>
+                      ))}
+                      {match.predictions.length === 0 ? <p className="text-sm text-gray-600">Nadie cargó predicciones para este partido.</p> : null}
+                    </div>
+                  </div>
+                </details>
               ))}
               {latestResults.length === 0 ? <p className="text-sm text-gray-600">Todavía no hay resultados cargados.</p> : null}
             </div>
