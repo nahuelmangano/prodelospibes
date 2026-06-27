@@ -51,7 +51,7 @@ RESULT_SYNC_POLL_SECONDS="60"
 
 El admin puede sincronizar manualmente desde el dashboard.
 
-En Docker Compose queda activo el servicio `result-sync`, que consulta la app cada 60 segundos. Cuando la API informa que un partido terminó, la app programa la sincronización para 2 minutos después y recién ahí carga el resultado y recalcula los puntos.
+En Docker Compose queda activo el servicio `result-sync`, que consulta la app cada 60 segundos. En cada pasada completa los cruces eliminatorios que la API ya tenga resueltos. Cuando la API informa que un partido terminó, la app programa la sincronización para 2 minutos después y recién ahí carga el resultado y recalcula los puntos.
 
 El admin puede revisar el historial y el estado de las sincronizaciones manuales y automáticas en `/admin/syncs`.
 

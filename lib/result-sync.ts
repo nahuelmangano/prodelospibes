@@ -18,9 +18,11 @@ type LocalMatch = {
   isFinished: boolean;
   autoResultSyncAt: Date | null;
   homeTeam: {
+    id: number;
     name: string;
   };
   awayTeam: {
+    id: number;
     name: string;
   };
 };
@@ -34,6 +36,10 @@ const NAME_ALIASES: Record<string, string> = {
 
 function normalizeTeamName(name: string) {
   return NAME_ALIASES[name] ?? name;
+}
+
+function hasResolvedTeam(teamId: string | undefined, teamName: string | undefined) {
+  return Boolean(teamName && teamName !== "null" && teamId !== "0");
 }
 
 async function recalculatePredictions(matchId: number, homeScore: number, awayScore: number) {
@@ -51,6 +57,15 @@ async function recalculatePredictions(matchId: number, homeScore: number, awaySc
 
 function findLocalMatch(game: WorldCup26Game, matches: LocalMatch[]) {
   const externalId = Number(game.id);
+
+  const apiMatch = matches.find((match) => match.apiFootballFixtureId === externalId);
+  if (apiMatch) return apiMatch;
+
+  const idMatch = matches.find((match) => match.id === externalId);
+  if (idMatch) return idMatch;
+
+  if (!game.home_team_name_en || !game.away_team_name_en) return null;
+
   const homeName = normalizeTeamName(game.home_team_name_en);
   const awayName = normalizeTeamName(game.away_team_name_en);
 
@@ -61,7 +76,36 @@ function findLocalMatch(game: WorldCup26Game, matches: LocalMatch[]) {
   );
   if (teamMatch) return teamMatch;
 
-  return matches.find((match) => match.id === externalId || match.apiFootballFixtureId === externalId);
+  return null;
+}
+
+async function updateMatchTeamsFromGame(game: WorldCup26Game, match: LocalMatch, teamsByName: Map<string, { id: number; name: string }>) {
+  const data: { homeTeamId?: number; awayTeamId?: number } = {};
+
+  if (hasResolvedTeam(game.home_team_id, game.home_team_name_en)) {
+    const homeTeam = teamsByName.get(normalizeTeamName(game.home_team_name_en!));
+    if (homeTeam && homeTeam.id !== match.homeTeam.id) {
+      data.homeTeamId = homeTeam.id;
+      match.homeTeam = { id: homeTeam.id, name: homeTeam.name };
+    }
+  }
+
+  if (hasResolvedTeam(game.away_team_id, game.away_team_name_en)) {
+    const awayTeam = teamsByName.get(normalizeTeamName(game.away_team_name_en!));
+    if (awayTeam && awayTeam.id !== match.awayTeam.id) {
+      data.awayTeamId = awayTeam.id;
+      match.awayTeam = { id: awayTeam.id, name: awayTeam.name };
+    }
+  }
+
+  if (Object.keys(data).length === 0) return false;
+
+  await prisma.match.update({
+    where: { id: match.id },
+    data,
+  });
+
+  return true;
 }
 
 function getAutoSyncDelayMs() {
@@ -107,30 +151,37 @@ async function createAutoSyncLog(data: {
 export async function scheduleFinishedMatchesForAutoSync(now = new Date()) {
   const games = await fetchWorldCup26Games();
   const matches = await prisma.match.findMany({
-    where: { isFinished: false },
     include: {
       homeTeam: true,
       awayTeam: true,
     },
   });
+  const teams = await prisma.team.findMany({ select: { id: true, name: true } });
+  const teamsByName = new Map(teams.map((team) => [team.name, team]));
 
   const autoResultSyncAt = new Date(now.getTime() + getAutoSyncDelayMs());
   let scheduled = 0;
   let alreadyScheduled = 0;
   let skipped = 0;
+  let resolvedTeamUpdates = 0;
 
   for (const game of games) {
-    if (!isFinishedWorldCup26Game(game)) continue;
-
-    const homeScore = parseWorldCup26Score(game.home_score);
-    const awayScore = parseWorldCup26Score(game.away_score);
-    if (homeScore === null || awayScore === null) continue;
-
     const match = findLocalMatch(game, matches);
     if (!match) {
       skipped += 1;
       continue;
     }
+
+    if (await updateMatchTeamsFromGame(game, match, teamsByName)) {
+      resolvedTeamUpdates += 1;
+    }
+
+    if (!isFinishedWorldCup26Game(game)) continue;
+    if (match.isFinished) continue;
+
+    const homeScore = parseWorldCup26Score(game.home_score);
+    const awayScore = parseWorldCup26Score(game.away_score);
+    if (homeScore === null || awayScore === null) continue;
 
     if (match.autoResultSyncAt) {
       alreadyScheduled += 1;
@@ -150,6 +201,7 @@ export async function scheduleFinishedMatchesForAutoSync(now = new Date()) {
     scheduled,
     alreadyScheduled,
     skipped,
+    resolvedTeamUpdates,
     autoResultSyncAt,
   };
 }
@@ -185,6 +237,17 @@ export async function syncDueAutoResults(now = new Date()) {
       if (log) {
         try {
           revalidatePath("/admin/syncs");
+          if (schedule.resolvedTeamUpdates > 0) {
+            revalidatePath("/");
+            revalidatePath("/matches");
+          }
+        } catch {
+          // Allows this sync to run from one-off scripts outside the Next.js request runtime.
+        }
+      } else if (schedule.resolvedTeamUpdates > 0) {
+        try {
+          revalidatePath("/");
+          revalidatePath("/matches");
         } catch {
           // Allows this sync to run from one-off scripts outside the Next.js request runtime.
         }
@@ -289,7 +352,6 @@ export async function syncResultsManually() {
 
 export async function syncResultsFromWorldCup26() {
   const games = await fetchWorldCup26Games();
-  await prisma.match.updateMany({ data: { apiFootballFixtureId: null } });
 
   const matches = await prisma.match.findMany({
     include: {
@@ -297,6 +359,8 @@ export async function syncResultsFromWorldCup26() {
       awayTeam: true,
     },
   });
+  const teams = await prisma.team.findMany({ select: { id: true, name: true } });
+  const teamsByName = new Map(teams.map((team) => [team.name, team]));
 
   let linked = 0;
   let finished = 0;
@@ -310,7 +374,16 @@ export async function syncResultsFromWorldCup26() {
       continue;
     }
 
+    await updateMatchTeamsFromGame(game, match, teamsByName);
+
     if (Number.isFinite(externalId)) {
+      await prisma.match.updateMany({
+        where: {
+          apiFootballFixtureId: externalId,
+          NOT: { id: match.id },
+        },
+        data: { apiFootballFixtureId: null },
+      });
       await prisma.match.update({
         where: { id: match.id },
         data: { apiFootballFixtureId: externalId },

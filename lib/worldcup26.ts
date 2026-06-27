@@ -2,12 +2,16 @@ const BASE_URL = process.env.WORLDCUP26_API_URL ?? "https://worldcup26.ir";
 
 export type WorldCup26Game = {
   id: string;
+  home_team_id?: string;
+  away_team_id?: string;
   home_score: string | null;
   away_score: string | null;
   finished: string;
   time_elapsed: string | null;
-  home_team_name_en: string;
-  away_team_name_en: string;
+  home_team_name_en?: string;
+  away_team_name_en?: string;
+  home_team_label?: string;
+  away_team_label?: string;
 };
 
 type WorldCup26GamesResponse = {

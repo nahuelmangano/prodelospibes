@@ -18,6 +18,7 @@ type TeamSeed = {
 
 type MatchSeed = {
   round: string;
+  num?: number;
   date: string;
   time: string;
   team1: string;
@@ -167,6 +168,7 @@ async function main() {
         },
       },
       update: {
+        apiFootballFixtureId: item.num ?? undefined,
         stadiumId: stadium?.id,
         stage: matchStage(item),
         round: item.round,
@@ -175,6 +177,7 @@ async function main() {
       create: {
         homeTeamId: homeTeam.id,
         awayTeamId: awayTeam.id,
+        apiFootballFixtureId: item.num ?? null,
         stadiumId: stadium?.id,
         matchDate,
         stage: matchStage(item),
