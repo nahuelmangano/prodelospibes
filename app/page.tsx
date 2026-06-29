@@ -135,7 +135,7 @@ export default async function DashboardPage() {
         },
       },
       orderBy: { matchDate: "asc" },
-      take: 5,
+      take: 6,
     }),
     prisma.match.findMany({
       where: { isFinished: true },
