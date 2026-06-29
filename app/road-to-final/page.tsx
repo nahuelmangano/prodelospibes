@@ -20,9 +20,12 @@ type KnockoutMatch = {
   stadium: { name: string; city: string } | null;
 };
 
+<<<<<<< HEAD
 type TooltipAlign = "left" | "center" | "right";
 type TooltipSide = "top" | "bottom";
 
+=======
+>>>>>>> a6ee0ef797766843d8eb15ed50fed3be5b535eb1
 const roundOf32Pairs = [
   { matchNum: 73, teams: ["Canada", "South Africa"] },
   { matchNum: 74, teams: ["Paraguay", "Germany"] },
@@ -126,6 +129,7 @@ function getWinner(match: KnockoutMatch | undefined): TeamInfo | null {
   return match.homeScore > match.awayScore ? match.homeTeam : match.awayTeam;
 }
 
+<<<<<<< HEAD
 function getTooltipAlign(left: number): TooltipAlign {
   if (left < 24) return "left";
   if (left > 76) return "right";
@@ -156,11 +160,26 @@ function MatchTooltip({
     <span
       className={`${alignClass} ${sideClass} pointer-events-none absolute z-20 hidden w-56 max-w-[calc(100vw-2rem)] rounded-md bg-ink px-3 py-2 text-left text-xs font-medium text-white shadow-lg group-hover:block group-focus-visible:block sm:w-64`}
     >
+=======
+function MatchTooltip({
+  match,
+  title,
+}: {
+  match: KnockoutMatch | undefined;
+  title: string;
+}) {
+  return (
+    <span className="pointer-events-none absolute left-1/2 top-0 z-20 hidden w-64 -translate-x-1/2 -translate-y-full rounded-md bg-ink px-3 py-2 text-left text-xs font-medium text-white shadow-lg group-hover:block group-focus-visible:block">
+>>>>>>> a6ee0ef797766843d8eb15ed50fed3be5b535eb1
       <span className="block text-sm font-bold">{title}</span>
       <span className="mt-1 block">{match ? formatDate(match.matchDate) : "Fecha a confirmar"}</span>
       {match?.stadium ? (
         <span className="mt-1 block text-gray-300">
+<<<<<<< HEAD
           {match.stadium.name} - {match.stadium.city}
+=======
+          {match.stadium.name} · {match.stadium.city}
+>>>>>>> a6ee0ef797766843d8eb15ed50fed3be5b535eb1
         </span>
       ) : null}
     </span>
@@ -212,12 +231,16 @@ export default async function RoadToFinalPage() {
                   className="group absolute h-[5.5%] w-[7.5%] -translate-x-1/2 -translate-y-1/2 rounded-full outline-none hover:ring-2 hover:ring-pitch hover:ring-offset-2 focus-visible:ring-2 focus-visible:ring-pitch focus-visible:ring-offset-2"
                   style={{ left: `${hotspot.left}%`, top: `${hotspot.top}%` }}
                 >
+<<<<<<< HEAD
                   <MatchTooltip
                     align={getTooltipAlign(hotspot.left)}
                     match={match}
                     side={getTooltipSide(hotspot.top)}
                     title={`${hotspot.team} vs ${opponent ?? "A confirmar"}`}
                   />
+=======
+                  <MatchTooltip match={match} title={`${hotspot.team} vs ${opponent ?? "A confirmar"}`} />
+>>>>>>> a6ee0ef797766843d8eb15ed50fed3be5b535eb1
                 </button>
               );
             })}
@@ -235,12 +258,16 @@ export default async function RoadToFinalPage() {
                   style={{ left: `${slot.left}%`, top: `${slot.top}%` }}
                 >
                   <span aria-hidden="true">{winner.flagEmoji}</span>
+<<<<<<< HEAD
                   <MatchTooltip
                     align={getTooltipAlign(slot.left)}
                     match={match}
                     side={getTooltipSide(slot.top)}
                     title={`Ganador: ${winner.name}`}
                   />
+=======
+                  <MatchTooltip match={match} title={`Ganador: ${winner.name}`} />
+>>>>>>> a6ee0ef797766843d8eb15ed50fed3be5b535eb1
                 </button>
               );
             })}

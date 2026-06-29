@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, ClipboardCheck, Gift, GitBranch, KeyRound, LogOut, RefreshCw, Trophy, Users } from "lucide-react";
+import { CalendarDays, ClipboardCheck, GitBranch, Gift, KeyRound, LogOut, RefreshCw, Trophy, Users } from "lucide-react";
 import { Role } from "@prisma/client";
 import { logoutAction } from "@/app/login/actions";
 

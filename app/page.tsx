@@ -39,7 +39,7 @@ function formatDate(date: Date) {
   }).format(date);
 }
 
-function normalizeTeamName(name: string) {
+function normalizeTeamName(name: string | undefined) {
   const aliases: Record<string, string> = {
     "United States": "USA",
     "Bosnia and Herzegovina": "Bosnia & Herzegovina",
@@ -48,6 +48,7 @@ function normalizeTeamName(name: string) {
     "Democratic Republic of the Congo": "DR Congo",
   };
 
+  if (!name) return "Por definirse";
   return aliases[name] ?? name;
 }
 
@@ -58,8 +59,8 @@ function teamPairKey(homeTeam: string, awayTeam: string) {
 function gameToLiveMatch(game: WorldCup26Game): ExternalLiveMatch {
   return {
     id: game.id,
-    homeTeam: normalizeTeamName(game.home_team_name_en),
-    awayTeam: normalizeTeamName(game.away_team_name_en),
+    homeTeam: normalizeTeamName(game.home_team_name_en ?? game.home_team_label),
+    awayTeam: normalizeTeamName(game.away_team_name_en ?? game.away_team_label),
     homeScore: parseWorldCup26Score(game.home_score),
     awayScore: parseWorldCup26Score(game.away_score),
     status: game.time_elapsed ?? "live",
