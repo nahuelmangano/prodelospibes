@@ -375,7 +375,12 @@ export default async function DashboardPage() {
           </section>
 
           <section className="min-w-0 rounded-lg border border-line bg-white p-5">
-            <h2 className="mb-4 text-lg font-bold">Ranking general</h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-bold">Ranking general</h2>
+              <Link href="/ranking" className="text-sm font-semibold text-pitch hover:underline">
+                Ver fecha a fecha
+              </Link>
+            </div>
             <ol className="space-y-2">
               {rankingRows.map((row, index) => (
                 <li key={row.id} className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2">
