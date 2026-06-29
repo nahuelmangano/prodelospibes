@@ -20,12 +20,9 @@ type KnockoutMatch = {
   stadium: { name: string; city: string } | null;
 };
 
-<<<<<<< HEAD
 type TooltipAlign = "left" | "center" | "right";
 type TooltipSide = "top" | "bottom";
 
-=======
->>>>>>> a6ee0ef797766843d8eb15ed50fed3be5b535eb1
 const roundOf32Pairs = [
   { matchNum: 73, teams: ["Canada", "South Africa"] },
   { matchNum: 74, teams: ["Paraguay", "Germany"] },

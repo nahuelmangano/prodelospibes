@@ -1,7 +1,7 @@
 # Prode Mundial Amigos
 
 Aplicación web para jugar un prode del Mundial con amigos.
-
+##NMV###
 ## Stack
 
 - Next.js App Router
