@@ -110,6 +110,10 @@ const winnerSlots = [
   { matchNum: 102, left: 50.5, top: 56.2 },
 ] as const;
 
+const knockoutWinnerOverrides: Record<number, string> = {
+  74: "Paraguay",
+};
+
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("es-AR", {
     dateStyle: "medium",
@@ -119,8 +123,13 @@ function formatDate(date: Date) {
   }).format(date);
 }
 
-function getWinner(match: KnockoutMatch | undefined): TeamInfo | null {
+function getWinner(match: KnockoutMatch | undefined, matchNum?: number): TeamInfo | null {
   if (!match?.isFinished || match.homeScore === null || match.awayScore === null) return null;
+  const overrideWinnerName = matchNum ? knockoutWinnerOverrides[matchNum] : undefined;
+  const overrideWinner =
+    overrideWinnerName && [match.homeTeam, match.awayTeam].find((team) => team.name === overrideWinnerName);
+  if (overrideWinner) return overrideWinner;
+
   if (match.homeScore === match.awayScore) return null;
 
   return match.homeScore > match.awayScore ? match.homeTeam : match.awayTeam;
@@ -223,7 +232,7 @@ export default async function RoadToFinalPage() {
             })}
             {winnerSlots.map((slot) => {
               const match = matchesByNum.get(slot.matchNum);
-              const winner = getWinner(match);
+              const winner = getWinner(match, slot.matchNum);
               if (!winner) return null;
 
               return (

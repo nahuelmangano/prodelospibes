@@ -2,6 +2,7 @@ import { ChevronDown } from "lucide-react";
 import { Nav } from "@/components/nav";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { calculatePoints } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ type RankingRow = {
   points: number;
   delta: number;
   position: number;
+  prediction: string | null;
 };
 
 function formatDate(date: Date) {
@@ -21,6 +23,10 @@ function formatDate(date: Date) {
     hour12: false,
     timeZone: "America/Argentina/Buenos_Aires",
   }).format(date);
+}
+
+function teamPairKey(homeTeam: string, awayTeam: string) {
+  return `${homeTeam.toLowerCase()}:${awayTeam.toLowerCase()}`;
 }
 
 function rankRows(rows: Omit<RankingRow, "position">[]): RankingRow[] {
@@ -39,7 +45,7 @@ function rankRows(rows: Omit<RankingRow, "position">[]): RankingRow[] {
 
 export default async function RankingPage() {
   const user = await requireUser();
-  const [players, finishedMatches] = await Promise.all([
+  const [players, finishedMatches, allPredictions] = await Promise.all([
     prisma.user.findMany({
       where: { role: "PLAYER" },
       orderBy: { name: "asc" },
@@ -51,19 +57,65 @@ export default async function RankingPage() {
         homeTeam: true,
         awayTeam: true,
         predictions: {
-          select: { playerId: true, points: true },
+          select: { playerId: true, homeScore: true, awayScore: true, points: true },
         },
       },
       orderBy: [{ matchDate: "asc" }, { id: "asc" }],
     }),
+    prisma.prediction.findMany({
+      include: {
+        match: {
+          include: {
+            homeTeam: true,
+            awayTeam: true,
+          },
+        },
+      },
+    }),
   ]);
 
-  const totalsByPlayerId = new Map(players.map((player) => [player.id, 0]));
-  const snapshots = finishedMatches.map((match, index) => {
-    const pointsByPlayerId = new Map(match.predictions.map((prediction) => [prediction.playerId, prediction.points]));
+  const predictionsByTeamPairAndPlayerId = new Map(
+    allPredictions.map((prediction) => [
+      `${teamPairKey(prediction.match.homeTeam.name, prediction.match.awayTeam.name)}:${prediction.playerId}`,
+      prediction,
+    ]),
+  );
+  const finishedMatchesByTeamPair = new Map<string, (typeof finishedMatches)[number]>();
 
-    match.predictions.forEach((prediction) => {
-      totalsByPlayerId.set(prediction.playerId, (totalsByPlayerId.get(prediction.playerId) ?? 0) + prediction.points);
+  for (const match of finishedMatches) {
+    const key = teamPairKey(match.homeTeam.name, match.awayTeam.name);
+    const existingMatch = finishedMatchesByTeamPair.get(key);
+
+    if (!existingMatch || match.predictions.length > existingMatch.predictions.length) {
+      finishedMatchesByTeamPair.set(key, match);
+    }
+  }
+
+  const totalsByPlayerId = new Map(players.map((player) => [player.id, 0]));
+  const snapshots = Array.from(finishedMatchesByTeamPair.values()).map((match, index) => {
+    const directPredictionsByPlayerId = new Map(match.predictions.map((prediction) => [prediction.playerId, prediction]));
+    const matchTeamPairKey = teamPairKey(match.homeTeam.name, match.awayTeam.name);
+
+    const rows = players.map((player) => {
+      const prediction =
+        directPredictionsByPlayerId.get(player.id) ??
+        predictionsByTeamPairAndPlayerId.get(`${matchTeamPairKey}:${player.id}`) ??
+        null;
+      const delta =
+        prediction && match.homeScore !== null && match.awayScore !== null
+          ? calculatePoints(prediction, { homeScore: match.homeScore, awayScore: match.awayScore })
+          : 0;
+
+      totalsByPlayerId.set(player.id, (totalsByPlayerId.get(player.id) ?? 0) + delta);
+
+      return {
+        id: player.id,
+        name: player.name,
+        username: player.username,
+        points: totalsByPlayerId.get(player.id) ?? 0,
+        delta,
+        prediction: prediction ? `${prediction.homeScore} - ${prediction.awayScore}` : null,
+      };
     });
 
     return {
@@ -72,15 +124,7 @@ export default async function RankingPage() {
       date: match.matchDate,
       title: `${match.homeTeam.name} ${match.homeScore ?? "-"} - ${match.awayScore ?? "-"} ${match.awayTeam.name}`,
       stage: match.stage,
-      rows: rankRows(
-        players.map((player) => ({
-          id: player.id,
-          name: player.name,
-          username: player.username,
-          points: totalsByPlayerId.get(player.id) ?? 0,
-          delta: pointsByPlayerId.get(player.id) ?? 0,
-        })),
-      ),
+      rows: rankRows(rows),
     };
   });
   const latestSnapshot = snapshots.at(-1);
@@ -157,6 +201,7 @@ export default async function RankingPage() {
                       <tr className="border-b border-line text-left text-gray-600">
                         <th className="px-3 py-2 font-semibold">Pos</th>
                         <th className="px-3 py-2 font-semibold">Jugador</th>
+                        <th className="px-3 py-2 text-right font-semibold">Pronostico</th>
                         <th className="px-3 py-2 text-right font-semibold">Fecha</th>
                         <th className="px-3 py-2 text-right font-semibold">Total</th>
                       </tr>
@@ -168,6 +213,9 @@ export default async function RankingPage() {
                           <td className="px-3 py-2">
                             <span className="font-semibold">{row.name}</span>
                             <span className="ml-2 text-gray-500">@{row.username}</span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">
+                            {row.prediction ?? <span className="font-normal text-gray-400">Sin cargar</span>}
                           </td>
                           <td className="px-3 py-2 text-right font-semibold">{row.delta > 0 ? `+${row.delta}` : row.delta}</td>
                           <td className="px-3 py-2 text-right font-bold">{row.points}</td>

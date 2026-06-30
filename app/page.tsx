@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
 
 type LiveMatch = {
   id: string;
+  matchId?: number;
   homeTeam: string;
   awayTeam: string;
   homeScore: number | null;
@@ -26,6 +27,7 @@ type LiveMatch = {
 };
 
 type ExternalLiveMatch = LiveMatch & {
+  fixtureId?: number;
   isLive: boolean;
   isFinished: boolean;
 };
@@ -46,19 +48,38 @@ function normalizeTeamName(name: string | undefined) {
     "Congo DR": "DR Congo",
     "DR Congo": "DR Congo",
     "Democratic Republic of the Congo": "DR Congo",
+    "Korea Republic": "South Korea",
+    Czechia: "Czech Republic",
   };
 
   if (!name) return "Por definirse";
   return aliases[name] ?? name;
 }
 
+function normalizeTeamKey(name: string | undefined) {
+  return normalizeTeamName(name)
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function teamPairKey(homeTeam: string, awayTeam: string) {
-  return `${normalizeTeamName(homeTeam)}:${normalizeTeamName(awayTeam)}`;
+  return `${normalizeTeamKey(homeTeam)}:${normalizeTeamKey(awayTeam)}`;
+}
+
+function isPlaceholderTeamName(name: string) {
+  return /^\d+[A-L]$/.test(name) || /^\d+[A-L](?:\/[A-L])+$/.test(name) || /^[WL]\d+$/.test(name);
 }
 
 function gameToLiveMatch(game: WorldCup26Game): ExternalLiveMatch {
+  const fixtureId = Number(game.id);
+
   return {
     id: game.id,
+    fixtureId: Number.isFinite(fixtureId) ? fixtureId : undefined,
     homeTeam: normalizeTeamName(game.home_team_name_en ?? game.home_team_label),
     awayTeam: normalizeTeamName(game.away_team_name_en ?? game.away_team_label),
     homeScore: parseWorldCup26Score(game.home_score),
@@ -103,6 +124,7 @@ async function getEspnMatches(): Promise<ExternalLiveMatch[]> {
 export default async function DashboardPage() {
   const user = await requireUser();
   const now = new Date();
+  const liveFallbackStartedAfter = new Date(now.getTime() - 4 * 60 * 60 * 1000);
   const [espnMatches, apiGames, localLiveMatches, upcomingMatches, latestResults, ranking, livePredictions, myPredictions] = await Promise.all([
     getEspnMatches(),
     getApiGames(),
@@ -110,6 +132,7 @@ export default async function DashboardPage() {
       where: {
         isFinished: false,
         matchDate: {
+          gte: liveFallbackStartedAfter,
           lte: now,
         },
       },
@@ -136,7 +159,6 @@ export default async function DashboardPage() {
         },
       },
       orderBy: { matchDate: "asc" },
-      take: 6,
     }),
     prisma.match.findMany({
       where: { isFinished: true },
@@ -177,21 +199,66 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  const externalMatches = [...apiGames.map(gameToLiveMatch), ...espnMatches];
+  const localLiveMatchesByTeamPair = new Map(localLiveMatches.map((match) => [teamPairKey(match.homeTeam.name, match.awayTeam.name), match]));
+  const localMatches = [...localLiveMatches, ...upcomingMatches];
+  const localMatchesByFixtureId = new Map(
+    localMatches
+      .filter((match) => match.apiFootballFixtureId !== null)
+      .map((match) => [match.apiFootballFixtureId, match]),
+  );
+  const localMatchesByTeamPair = new Map(localMatches.map((match) => [teamPairKey(match.homeTeam.name, match.awayTeam.name), match]));
+  const externalMatches = [...apiGames.map(gameToLiveMatch), ...espnMatches].map((match) => ({
+    ...match,
+    matchId:
+      (match.fixtureId ? localMatchesByFixtureId.get(match.fixtureId)?.id : undefined) ??
+      localMatchesByTeamPair.get(teamPairKey(match.homeTeam, match.awayTeam))?.id ??
+      localLiveMatchesByTeamPair.get(teamPairKey(match.homeTeam, match.awayTeam))?.id,
+  }));
+  const externalMatchesByFixtureId = new Map(
+    externalMatches
+      .filter((match) => match.fixtureId !== undefined)
+      .map((match) => [match.fixtureId, match]),
+  );
   const externalMatchesByTeamPair = new Map(externalMatches.map((match) => [teamPairKey(match.homeTeam, match.awayTeam), match]));
-  const externalLiveMatches = externalMatches.filter((match) => match.isLive);
+  const externalMatchForLocalMatch = (match: (typeof localMatches)[number]) =>
+    (match.apiFootballFixtureId ? externalMatchesByFixtureId.get(match.apiFootballFixtureId) : undefined) ??
+    externalMatchesByTeamPair.get(teamPairKey(match.homeTeam.name, match.awayTeam.name));
+  const externalTeamName = (localName: string, externalName: string | undefined) => {
+    const externalKey = normalizeTeamKey(externalName);
+    return externalName && externalKey !== "" && externalKey !== "por definirse" ? externalName : localName;
+  };
+  const externalLiveMatches = Array.from(
+    new Map(externalMatches.filter((match) => match.isLive).map((match) => [teamPairKey(match.homeTeam, match.awayTeam), match])).values(),
+  );
   const externalLiveTeamPairs = new Set(externalLiveMatches.map((match) => teamPairKey(match.homeTeam, match.awayTeam)));
+  const resolvedLocalLiveSlots = new Set(
+    localLiveMatches
+      .filter((match) => !isPlaceholderTeamName(match.homeTeam.name) && !isPlaceholderTeamName(match.awayTeam.name))
+      .map((match) => `${match.matchDate.toISOString()}:${match.stadiumId ?? "sin-sede"}`),
+  );
   const liveMatches: LiveMatch[] = [
     ...externalLiveMatches,
     ...localLiveMatches
-      .filter((match) => !externalLiveTeamPairs.has(teamPairKey(match.homeTeam.name, match.awayTeam.name)))
+      .filter((match) => {
+        const externalMatch = externalMatchForLocalMatch(match);
+        const isPlaceholder = isPlaceholderTeamName(match.homeTeam.name) || isPlaceholderTeamName(match.awayTeam.name);
+        const slotKey = `${match.matchDate.toISOString()}:${match.stadiumId ?? "sin-sede"}`;
+
+        return (
+          !externalMatch?.isFinished &&
+          !externalMatch?.isLive &&
+          (!isPlaceholder || !resolvedLocalLiveSlots.has(slotKey)) &&
+          !externalLiveTeamPairs.has(teamPairKey(match.homeTeam.name, match.awayTeam.name))
+        );
+      })
       .map((match) => {
-        const externalMatch = externalMatchesByTeamPair.get(teamPairKey(match.homeTeam.name, match.awayTeam.name));
+        const externalMatch = externalMatchForLocalMatch(match);
 
         return {
           id: String(match.id),
-          homeTeam: match.homeTeam.name,
-          awayTeam: match.awayTeam.name,
+          matchId: match.id,
+          homeTeam: externalTeamName(match.homeTeam.name, externalMatch?.homeTeam),
+          awayTeam: externalTeamName(match.awayTeam.name, externalMatch?.awayTeam),
           homeScore: externalMatch?.homeScore ?? match.homeScore,
           awayScore: externalMatch?.awayScore ?? match.awayScore,
           status: externalMatch?.status ?? "En curso",
@@ -207,6 +274,15 @@ export default async function DashboardPage() {
     }))
     .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 
+  const myPredictionsByMatchId = new Map(
+    livePredictions.map((prediction) => [
+      prediction.matchId,
+      {
+        homeScore: prediction.homeScore,
+        awayScore: prediction.awayScore,
+      },
+    ]),
+  );
   const myPredictionsByTeamPair = new Map(
     livePredictions.map((prediction) => [
       teamPairKey(prediction.match.homeTeam.name, prediction.match.awayTeam.name),
@@ -219,8 +295,44 @@ export default async function DashboardPage() {
 
   const liveMatchesWithPredictions = liveMatches.map((match) => ({
     ...match,
-    prediction: myPredictionsByTeamPair.get(teamPairKey(match.homeTeam, match.awayTeam)),
+    prediction: (match.matchId ? myPredictionsByMatchId.get(match.matchId) : undefined) ?? myPredictionsByTeamPair.get(teamPairKey(match.homeTeam, match.awayTeam)),
   }));
+  const upcomingStage = upcomingMatches[0]?.stage;
+  const upcomingMatchRows = upcomingMatches.map((match) => {
+    const externalMatch = externalMatchForLocalMatch(match);
+    const homeTeamName = externalTeamName(match.homeTeam.name, externalMatch?.homeTeam);
+    const awayTeamName = externalTeamName(match.awayTeam.name, externalMatch?.awayTeam);
+    const localPlaceholder = isPlaceholderTeamName(match.homeTeam.name) || isPlaceholderTeamName(match.awayTeam.name);
+    const displayPlaceholder = isPlaceholderTeamName(homeTeamName) || isPlaceholderTeamName(awayTeamName);
+
+    return {
+      match,
+      homeTeamName,
+      awayTeamName,
+      localPlaceholder,
+      displayPlaceholder,
+      slotKey: `${match.matchDate.toISOString()}:${match.stadiumId ?? "sin-sede"}`,
+      pairKey: teamPairKey(homeTeamName, awayTeamName),
+      hasPrediction: match.predictions.length > 0,
+    };
+  });
+  const resolvedUpcomingSlots = new Set(upcomingMatchRows.filter((row) => !row.displayPlaceholder).map((row) => row.slotKey));
+  const dedupedUpcomingMatches = Array.from(
+    upcomingMatchRows
+      .filter((row) => !upcomingStage || row.match.stage === upcomingStage)
+      .filter((row) => !row.displayPlaceholder || !resolvedUpcomingSlots.has(row.slotKey))
+      .reduce((rowsBySlotAndPair, row) => {
+        const key = `${row.slotKey}:${row.pairKey}`;
+        const previousRow = rowsBySlotAndPair.get(key);
+
+        if (!previousRow || (row.hasPrediction && !previousRow.hasPrediction) || (!row.localPlaceholder && previousRow.localPlaceholder)) {
+          rowsBySlotAndPair.set(key, row);
+        }
+
+        return rowsBySlotAndPair;
+      }, new Map<string, (typeof upcomingMatchRows)[number]>())
+      .values(),
+  ).sort((a, b) => a.match.matchDate.getTime() - b.match.matchDate.getTime() || a.match.id - b.match.id);
 
   return (
     <>
@@ -289,7 +401,7 @@ export default async function DashboardPage() {
               </Link>
             </div>
             <div className="space-y-3">
-              {upcomingMatches.map((match) => {
+              {dedupedUpcomingMatches.map(({ match, homeTeamName, awayTeamName }) => {
                 const myPrediction = match.predictions[0];
                 const predictionEditable = canEditPrediction(match);
 
@@ -301,7 +413,7 @@ export default async function DashboardPage() {
                     <summary className="grid cursor-pointer list-none gap-2 p-3 outline-none transition hover:bg-gray-50 sm:grid-cols-[minmax(0,1fr)_auto] [&::-webkit-details-marker]:hidden">
                       <span className="min-w-0">
                         <span className="block break-words font-semibold">
-                          {match.homeTeam.flagEmoji} {match.homeTeam.name} vs {match.awayTeam.flagEmoji} {match.awayTeam.name}
+                          {match.homeTeam.flagEmoji} {homeTeamName} vs {match.awayTeam.flagEmoji} {awayTeamName}
                         </span>
                         {myPrediction ? (
                           <span className="mt-1 block text-sm font-semibold text-pitch">
@@ -319,11 +431,11 @@ export default async function DashboardPage() {
                       <div className="mb-3 grid gap-2 text-sm sm:grid-cols-2">
                         <p className="min-w-0 break-words">
                           <span className="block text-gray-600">Local</span>
-                          <strong>{match.homeTeam.name}</strong>
+                          <strong>{homeTeamName}</strong>
                         </p>
                         <p className="min-w-0 break-words">
                           <span className="block text-gray-600">Visitante</span>
-                          <strong>{match.awayTeam.name}</strong>
+                          <strong>{awayTeamName}</strong>
                         </p>
                       </div>
 
@@ -337,7 +449,7 @@ export default async function DashboardPage() {
                         <form action={savePredictionAction} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2 sm:gap-3">
                           <input type="hidden" name="matchId" value={match.id} />
                           <label className="block min-w-0 text-sm font-medium">
-                            <span className="block truncate">{match.homeTeam.name}</span>
+                            <span className="block truncate">{homeTeamName}</span>
                             <input
                               name="homeScore"
                               type="number"
@@ -349,7 +461,7 @@ export default async function DashboardPage() {
                           </label>
                           <span className="pb-2 text-xl font-bold">-</span>
                           <label className="block min-w-0 text-sm font-medium">
-                            <span className="block truncate">{match.awayTeam.name}</span>
+                            <span className="block truncate">{awayTeamName}</span>
                             <input
                               name="awayScore"
                               type="number"
@@ -370,7 +482,7 @@ export default async function DashboardPage() {
                   </details>
                 );
               })}
-              {upcomingMatches.length === 0 ? <p className="text-sm text-gray-600">No hay partidos pendientes.</p> : null}
+              {dedupedUpcomingMatches.length === 0 ? <p className="text-sm text-gray-600">No hay partidos pendientes.</p> : null}
             </div>
           </section>
 

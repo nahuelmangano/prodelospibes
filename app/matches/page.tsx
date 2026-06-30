@@ -8,6 +8,14 @@ type MatchWithRelations = Awaited<ReturnType<typeof prisma.match.findMany>>[numb
   homeTeam: { flagEmoji: string; name: string };
   awayTeam: { flagEmoji: string; name: string };
   stadium: { name: string; city: string } | null;
+  predictions: { id: number }[];
+};
+
+type MatchPreference = {
+  id: number;
+  isFinished: boolean;
+  apiFootballFixtureId: number | null;
+  predictions: { id: number }[];
 };
 
 const KNOCKOUT_STAGE_ORDER: Record<string, number> = {
@@ -38,6 +46,33 @@ function getStageOrder(stage: string) {
   return KNOCKOUT_STAGE_ORDER[stage] ?? 1000;
 }
 
+function teamPairKey(homeTeam: string, awayTeam: string) {
+  return [homeTeam, awayTeam]
+    .map((name) =>
+      name
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .replace(/&/g, "and")
+        .replace(/[^a-z0-9]+/gi, " ")
+        .trim()
+        .toLowerCase(),
+    )
+    .join(":");
+}
+
+function isPlaceholderTeamName(name: string) {
+  return /^\d+[A-L]$/.test(name) || /^\d+[A-L](?:\/[A-L])+$/.test(name) || /^[WL]\d+$/.test(name);
+}
+
+function preferredMatch<T extends MatchPreference>(current: T, next: T) {
+  if (current.isFinished !== next.isFinished) return current.isFinished ? current : next;
+  if (current.predictions.length !== next.predictions.length) return current.predictions.length > next.predictions.length ? current : next;
+  if (current.apiFootballFixtureId !== null && next.apiFootballFixtureId === null) return current;
+  if (next.apiFootballFixtureId !== null && current.apiFootballFixtureId === null) return next;
+
+  return current.id < next.id ? current : next;
+}
+
 function isGroupStage(stage: string) {
   const groupMatch = /^Grupo\s+([A-Z])$/i.exec(stage);
 
@@ -66,17 +101,40 @@ function MatchCard({ match }: { match: MatchWithRelations }) {
 export default async function MatchesPage() {
   const user = await requireUser();
   const matches = await prisma.match.findMany({
-    include: { homeTeam: true, awayTeam: true, stadium: true },
+    include: { homeTeam: true, awayTeam: true, stadium: true, predictions: { select: { id: true } } },
     orderBy: { matchDate: "asc" },
   });
+  const resolvedSlots = new Set(
+    matches
+      .filter((match) => !isPlaceholderTeamName(match.homeTeam.name) && !isPlaceholderTeamName(match.awayTeam.name))
+      .map((match) => `${match.matchDate.toISOString()}:${match.stadiumId ?? "sin-sede"}`),
+  );
+  const dedupedMatches = Array.from(
+    matches
+      .filter((match) => {
+        const isPlaceholder = isPlaceholderTeamName(match.homeTeam.name) || isPlaceholderTeamName(match.awayTeam.name);
+        const slotKey = `${match.matchDate.toISOString()}:${match.stadiumId ?? "sin-sede"}`;
+
+        return !isPlaceholder || !resolvedSlots.has(slotKey);
+      })
+      .reduce((matchesByPair, match) => {
+        const key = teamPairKey(match.homeTeam.name, match.awayTeam.name);
+        const currentMatch = matchesByPair.get(key);
+
+        matchesByPair.set(key, currentMatch ? preferredMatch(currentMatch, match) : match);
+
+        return matchesByPair;
+      }, new Map<string, typeof matches[number]>())
+      .values(),
+  ).sort((a, b) => a.matchDate.getTime() - b.matchDate.getTime() || a.id - b.id);
   const matchGroups = Array.from(
-    matches.reduce((groups, match) => {
+    dedupedMatches.reduce((groups, match) => {
       const groupMatches = groups.get(match.stage) ?? [];
       groupMatches.push(match);
       groups.set(match.stage, groupMatches);
 
       return groups;
-    }, new Map<string, typeof matches>()),
+    }, new Map<string, typeof dedupedMatches>()),
   ).sort(([stageA], [stageB]) => getStageOrder(stageA) - getStageOrder(stageB) || stageA.localeCompare(stageB, "es"));
   const groupStageGroups = matchGroups.filter(([stage]) => isGroupStage(stage));
   const knockoutStageGroups = matchGroups.filter(([stage]) => !isGroupStage(stage));

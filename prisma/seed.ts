@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { Prisma, PrismaClient, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import teamsData from "./data/worldcup.teams.json";
 import worldcupData from "./data/worldcup.json";
@@ -82,6 +82,15 @@ function resolveTeamName(name: string) {
   return aliases[name] ?? name;
 }
 
+function isFixtureIdConflict(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002" &&
+    Array.isArray(error.meta?.target) &&
+    error.meta.target.includes("apiFootballFixtureId")
+  );
+}
+
 async function main() {
   await upsertUser("Administrador", "admin", "admin123", Role.ADMIN);
 
@@ -158,33 +167,48 @@ async function main() {
     if (!homeTeam || !awayTeam) continue;
 
     const matchDate = parseMatchDate(item.date, item.time);
+    const matchData = {
+      homeTeamId: homeTeam.id,
+      awayTeamId: awayTeam.id,
+      apiFootballFixtureId: item.num ?? null,
+      stadiumId: stadium?.id,
+      matchDate,
+      stage: matchStage(item),
+      round: item.round,
+      groupName: item.group ?? null,
+    };
 
-    await prisma.match.upsert({
-      where: {
-        homeTeamId_awayTeamId_matchDate: {
-          homeTeamId: homeTeam.id,
-          awayTeamId: awayTeam.id,
-          matchDate,
-        },
-      },
-      update: {
-        apiFootballFixtureId: item.num ?? undefined,
-        stadiumId: stadium?.id,
-        stage: matchStage(item),
-        round: item.round,
-        groupName: item.group ?? null,
-      },
-      create: {
+    const where = {
+      homeTeamId_awayTeamId_matchDate: {
         homeTeamId: homeTeam.id,
         awayTeamId: awayTeam.id,
-        apiFootballFixtureId: item.num ?? null,
-        stadiumId: stadium?.id,
         matchDate,
-        stage: matchStage(item),
-        round: item.round,
-        groupName: item.group ?? null,
       },
-    });
+    };
+
+    try {
+      await prisma.match.upsert({
+        where,
+        update: matchData,
+        create: matchData,
+      });
+    } catch (error) {
+      if (!isFixtureIdConflict(error)) {
+        throw error;
+      }
+
+      await prisma.match.upsert({
+        where,
+        update: {
+          ...matchData,
+          apiFootballFixtureId: undefined,
+        },
+        create: {
+          ...matchData,
+          apiFootballFixtureId: undefined,
+        },
+      });
+    }
   }
 
   const squads = squadsData as SquadSeed[];
